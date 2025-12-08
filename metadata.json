@@ -1,0 +1,7 @@
+{
+  "name": "ShelfSense",
+  "description": "Find the perfect match.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
