@@ -60,7 +60,7 @@ const SCHEMA_DEFINITION = {
     },
     detectedItemCount: {
       type: "INTEGER",
-      description: "Approximate total number of similar/relevant items found on the shelf section."
+      description: "The TOTAL number of product facings visible across the ENTIRE image (often 30-100+ on a full shelf). Count every single visible item, not just relevant ones."
     },
     otherCandidates: {
       type: "ARRAY",
@@ -115,32 +115,33 @@ export async function analyzeShelfImage(
   userQuery: string,
   userProfileTags: string[]
 ): Promise<SubstituteRecommendation> {
-  const modelName = "gemini-1.5-flash"; 
+  // Use gemini-2.0-flash as a safe, high-performance fallback if 2.5 is causing API path issues,
+  // but we will stick to 2.5-flash if available. If 400 persists, 2.0-flash is the stable next-gen.
+  const modelName = "gemini-2.5-flash"; 
 
   const prompt = `
     I am at a grocery store and I have a request: "${userQuery}". 
     My Dietary Profile / Global Preferences: ${userProfileTags.length > 0 ? userProfileTags.join(", ") : "None specified"}.
 
-    Analyze the image of the grocery shelf to find the best match.
-    
-    CRITICAL INSTRUCTION - INTERPRETATION:
-    1. **Interpret the User Query**: The user might use natural language comparisons like "Good like Minute Maid" or "Something spicy". 
-       - If they mention a brand ("like Brand X"), they are looking for a product *similar* to Brand X (in type/flavor), NOT literally a product named "Like Brand X".
-       - If they search for a specific product name, look for that exact product.
-    2. **Apply Dietary Profile**: Strictly prioritize products that match the Global Preferences (e.g. if profile says "Keto", reject high-sugar items even if they match the query name).
+    Perform a deep visual analysis of the ENTIRE shelf image.
 
-    CRITICAL INSTRUCTION - VISION:
-    1. **READ VISIBLE TEXT**: Identify text actually printed on packaging. 
-    2. **VERIFY**: Use Google Search to verify product names/brands based on visual cues.
-    3. **NO HALLUCINATIONS**: Do NOT guess flavors not visible on the label.
+    CRITICAL INSTRUCTION - SCANNING:
+    1. **GLOBAL SCAN**: Look at the WHOLE image from edge to edge. Do not focus only on the center. 
+    2. **COUNTING**: You are an expert inventory auditor. Your goal is an EXACT count. Count EVERY single product facing visible on the shelves. A typical grocery shelf photo contains 40-100 items. 
+       - If you count fewer than 20 items, RE-SCAN the edges and background. You are likely missing items.
+       - Count every unique facing, not just rows.
+    3. **READING**: Read the text on as many labels as possible to understand the variety available.
+
+    CRITICAL INSTRUCTION - INTERPRETATION:
+    1. **Interpret the User Query**: The user might use natural language comparisons. 
+       - If they mention a brand ("like Brand X"), they want a *similar* product, not necessarily Brand X.
+    2. **Apply Dietary Profile**: Strictly prioritize products that match the Global Preferences.
 
     Logic Flow:
-    1. **Identify Primary Match**: 
-       - Best item matching the *interpreted* query and *dietary profile*.
-    2. **Identify Supplementary Items (Optional)**:
-       - If the request implies a recipe (e.g. "Cake"), find supplements (Frosting).
-    3. **Check Context**: 
-       - If the shelf is completely wrong, set matchType to WRONG_AISLE.
+    1. **Scan & Count**: populate 'detectedItemCount' with the total number of items visible in the image.
+    2. **Filter**: Identify products that match the query and dietary profile.
+    3. **Select Best**: Choose the single best match.
+    4. **Context Check**: If the shelf contains completely unrelated items (e.g. searching for 'Milk' in the 'Detergent' aisle), set matchType to WRONG_AISLE.
 
     Output Requirements:
     - **Bounding Box**: Required for Primary and Supplementary items.
@@ -151,26 +152,30 @@ export async function analyzeShelfImage(
   try {
     const model = genAI.getGenerativeModel({
       model: modelName,
-      generationConfig: {
-        temperature: 0.1,
-      },
-      tools: [{
-        // @ts-ignore - googleSearch types might vary in some versions
-        googleSearch: {}
-      }]
     });
 
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: "image/jpeg",
-          data: imageBase64,
-        },
-      },
-      {
-        text: prompt,
-      },
-    ]);
+    const result = await model.generateContent({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: imageBase64,
+              },
+            },
+            {
+              text: prompt,
+            },
+          ]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.1,
+        responseMimeType: "application/json"
+      }
+    });
 
     const response = await result.response;
     let textResponse = response.text();
@@ -180,7 +185,7 @@ export async function analyzeShelfImage(
     textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
     const data = JSON.parse(textResponse) as SubstituteRecommendation;
 
-    // @ts-ignore - groundingMetadata exists on candidate
+    // @ts-ignore - groundingMetadata exists on candidate in some versions
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
       const sources = groundingChunks
