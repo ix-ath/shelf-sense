@@ -1,8 +1,9 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { SubstituteRecommendation } from "../types";
 
 // Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// @ts-ignore
+const genAI = new GoogleGenerativeAI(process.env.API_KEY as string);
 
 const SCHEMA_DEFINITION = {
   type: "OBJECT",
@@ -114,7 +115,7 @@ export async function analyzeShelfImage(
   userQuery: string,
   userProfileTags: string[]
 ): Promise<SubstituteRecommendation> {
-  const model = "gemini-2.5-flash"; 
+  const modelName = "gemini-1.5-flash"; 
 
   const prompt = `
     I am at a grocery store and I have a request: "${userQuery}". 
@@ -148,38 +149,43 @@ export async function analyzeShelfImage(
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: imageBase64,
-            },
-          },
-          {
-            text: prompt,
-          },
-        ],
-      },
-      config: {
-        tools: [{ googleSearch: {} }],
+    const model = genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
         temperature: 0.1,
       },
+      tools: [{
+        // @ts-ignore - googleSearch types might vary in some versions
+        googleSearch: {}
+      }]
     });
 
-    let textResponse = response.text;
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: imageBase64,
+        },
+      },
+      {
+        text: prompt,
+      },
+    ]);
+
+    const response = await result.response;
+    let textResponse = response.text();
+    
     if (!textResponse) throw new Error("No response from AI");
 
     textResponse = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
     const data = JSON.parse(textResponse) as SubstituteRecommendation;
 
+    // @ts-ignore - groundingMetadata exists on candidate
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
     if (groundingChunks) {
       const sources = groundingChunks
-        .map(chunk => chunk.web)
-        .filter(web => web !== undefined && web !== null) as { uri: string; title: string }[];
+        .map((chunk: any) => chunk.web)
+        .filter((web: any) => web !== undefined && web !== null) as { uri: string; title: string }[];
       data.verifiedSources = sources;
     }
 
