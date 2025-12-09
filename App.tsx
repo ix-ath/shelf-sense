@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { analyzeShelfImage } from './services/geminiService';
 import CameraCapture from './components/CameraCapture';
 import RecommendationCard from './components/RecommendationCard';
@@ -27,6 +27,10 @@ const App: React.FC = () => {
   // Results
   const [result, setResult] = useState<SubstituteRecommendation | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  
+  // Loading Feedback
+  const [loadingText, setLoadingText] = useState("Analyzing Shelf...");
+  const timerRef = useRef<any>(null);
 
   const handleCapture = (file: File) => {
     setImageFile(file);
@@ -36,6 +40,37 @@ const App: React.FC = () => {
   const handleClearImage = () => {
     setImageFile(null);
   };
+
+  // Progressive Loading Messages
+  const startLoadingTimers = () => {
+    setLoadingText("Analyzing Shelf...");
+    let step = 0;
+    const messages = [
+        "Analyzing Shelf...",
+        "Reading labels...",
+        "Scanning quantities...",
+        "Calculating best match...",
+        "Finalizing details..."
+    ];
+    
+    if (timerRef.current) clearInterval(timerRef.current);
+    
+    timerRef.current = setInterval(() => {
+        step++;
+        if (step < messages.length) {
+            setLoadingText(messages[step]);
+        }
+    }, 3500); // Change message every 3.5s
+  };
+
+  const clearLoadingTimers = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setLoadingText("Analyzing Shelf...");
+  };
+
+  useEffect(() => {
+    return () => clearLoadingTimers();
+  }, []);
 
   const handleAnalyze = async () => {
     if (!searchQuery.trim()) {
@@ -49,6 +84,7 @@ const App: React.FC = () => {
     
     setErrorMsg("");
     setAppState(AppState.ANALYZING);
+    startLoadingTimers();
 
     try {
       // Convert file to Base64
@@ -68,11 +104,14 @@ const App: React.FC = () => {
             console.error(err);
             setAppState(AppState.ERROR);
             setErrorMsg("Could not analyze the image. Please ensure the shelf is well-lit and try again.");
+        } finally {
+            clearLoadingTimers();
         }
       };
     } catch (err) {
       setAppState(AppState.ERROR);
       setErrorMsg("Error processing image file.");
+      clearLoadingTimers();
     }
   };
 
@@ -82,6 +121,7 @@ const App: React.FC = () => {
     setImageFile(null);
     setErrorMsg("");
     setSearchQuery(""); // Auto-clear text on reset as requested
+    clearLoadingTimers();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -160,6 +200,7 @@ const App: React.FC = () => {
                     onCapture={handleCapture} 
                     onClear={handleClearImage}
                     isLoading={appState === AppState.ANALYZING}
+                    loadingText={loadingText}
                     themeColor={theme.primary}
                 />
             </div>

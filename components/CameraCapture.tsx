@@ -6,10 +6,18 @@ interface CameraCaptureProps {
   onCapture: (file: File) => void;
   onClear: () => void;
   isLoading: boolean;
+  loadingText?: string;
   themeColor?: string;
 }
 
-const CameraCapture: React.FC<CameraCaptureProps> = ({ currentImage, onCapture, onClear, isLoading, themeColor = 'violet' }) => {
+const CameraCapture: React.FC<CameraCaptureProps> = ({ 
+  currentImage, 
+  onCapture, 
+  onClear, 
+  isLoading, 
+  loadingText = "Analyzing Shelf...", 
+  themeColor = 'violet' 
+}) => {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,12 +60,12 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({ currentImage, onCapture, 
         </div>
 
         {isLoading && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm transition-all duration-500">
                  <div className="relative">
                     <div className={`absolute inset-0 bg-${themeColor}-500 rounded-full blur-xl opacity-50 animate-pulse`}></div>
                     <Scan size={48} className="text-white relative z-10 animate-spin-slow duration-[3s]" />
                  </div>
-                 <p className="text-white font-display font-medium mt-4 tracking-wide text-sm">Analyzing Shelf...</p>
+                 <p className="text-white font-display font-medium mt-4 tracking-wide text-sm animate-pulse">{loadingText}</p>
             </div>
         )}
 
